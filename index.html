@@ -102,7 +102,6 @@
         const submitBtn = document.getElementById('submitBtn');
         let currentGoals = [];
 
-        // 1. АВТОМАТИЧЕСКОЕ ПРИСОЕДИНЕНИЕ (если ссылка сработала)
         async function checkInviteAndJoin() {
             if (currentUserId !== 0 && startParam && startParam.startsWith('goal_')) {
                 const goalId = startParam.replace('goal_', '');
@@ -126,12 +125,10 @@
         }
         checkInviteAndJoin();
 
-        // 2. РУЧНОЕ ПРИСОЕДИНЕНИЕ ПО КОДУ (резервный вариант)
         document.getElementById('joinByCodeBtn').addEventListener('click', async () => {
-            const code = prompt('Введите код приглашения (например, 3xZfz74FJ...):');
+            const code = prompt('Введите код приглашения:');
             if (!code) return;
             
-            // Очищаем код от лишнего мусора, если вставили всю ссылку
             let goalId = code.trim();
             if (goalId.includes('startapp=goal_')) {
                 goalId = goalId.split('startapp=goal_')[1];
@@ -158,7 +155,7 @@
                     tg.showAlert('Цель не найдена. Проверьте код.');
                 }
             } catch (e) {
-                tg.showAlert('Ошибка подключения: включите VPN и попробуйте снова. ' + e.message);
+                tg.showAlert('Ошибка подключения: ' + e.message);
             }
         });
 
@@ -248,12 +245,9 @@
         }
 
         window.shareGoal = function(id, title) {
-            const botUsername = 'MagoThriftBot';
-            const shareUrl = `https://t.me/${botUsername}/app?startapp=goal_${id}`;
-            // Добавили код текстом, чтобы его можно было легко скопировать
-            const text = `Давай копить вместе на "${title}"!\n\nМоя ссылка: ${shareUrl}\n\nЕсли ссылка не открывает приложение сразу, открой Кубышку и нажми "Присоединиться по коду".\nТвой код: ${id}`;
-            
-            const telegramShareUrl = `https://t.me/share/url?url=${encodeURIComponent(shareUrl)}&text=${encodeURIComponent(text)}`;
+            // Оставили только текст-инструкцию без прямой ссылки
+            const text = `Давай копить вместе на "${title}"!\n\nЗайди в бота @MagoThriftBot, открой приложение и нажми "Присоединиться по коду".\n\nТвой код:\n${id}`;
+            const telegramShareUrl = `https://t.me/share/url?text=${encodeURIComponent(text)}`;
             tg.openTelegramLink(telegramShareUrl);
         };
 
