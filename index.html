@@ -39,6 +39,13 @@
             </form>
         </section>
 
+        <!-- Кнопка ручного присоединения -->
+        <div class="mb-6 flex justify-center">
+            <button id="joinByCodeBtn" class="text-sm font-semibold text-blue-600 hover:text-blue-800 bg-blue-50 hover:bg-blue-100 px-5 py-2.5 rounded-xl transition">
+                🤝 Присоединиться к цели по коду
+            </button>
+        </div>
+
         <!-- Список целей -->
         <div id="goalsContainer" class="space-y-4"></div>
     </div>
@@ -67,7 +74,6 @@
 
     <script type="module">
         import { initializeApp } from "https://www.gstatic.com/firebasejs/10.5.0/firebase-app.js";
-        // Добавлены arrayUnion и getDoc для работы с совместными целями
         import { getFirestore, collection, onSnapshot, addDoc, updateDoc, deleteDoc, doc, query, where, arrayUnion, getDoc } from "https://www.gstatic.com/firebasejs/10.5.0/firebase-firestore.js";
 
         const tg = window.Telegram.WebApp;
@@ -75,7 +81,7 @@
 
         const tgUser = tg.initDataUnsafe?.user;
         const currentUserId = tgUser ? tgUser.id : 0; 
-        const startParam = tg.initDataUnsafe?.start_param; // Ловим параметр из ссылки-приглашения
+        const startParam = tg.initDataUnsafe?.start_param; 
 
         const firebaseConfig = {
             apiKey: "AIzaSyDg4YhG4x97r4SzW12nHlklui7vI5CgNpU",
@@ -96,17 +102,15 @@
         const submitBtn = document.getElementById('submitBtn');
         let currentGoals = [];
 
-        // 1. ЛОГИКА ПРИСОЕДИНЕНИЯ К ЦЕЛИ ПО ССЫЛКЕ
+        // 1. АВТОМАТИЧЕСКОЕ ПРИСОЕДИНЕНИЕ (если ссылка сработала)
         async function checkInviteAndJoin() {
             if (currentUserId !== 0 && startParam && startParam.startsWith('goal_')) {
                 const goalId = startParam.replace('goal_', '');
                 try {
                     const goalRef = doc(db, 'goals', goalId);
                     const docSnap = await getDoc(goalRef);
-                    
                     if (docSnap.exists()) {
                         const goalData = docSnap.data();
-                        // Если нас еще нет в участниках — добавляемся
                         if (!goalData.members.includes(currentUserId)) {
                             await updateDoc(goalRef, {
                                 members: arrayUnion(currentUserId),
@@ -114,17 +118,49 @@
                             });
                             tg.showAlert('Вы успешно присоединились к общей цели!');
                         }
-                    } else {
-                        tg.showAlert('Цель по ссылке не найдена или была удалена.');
                     }
                 } catch (e) {
-                    console.error("Ошибка при подключении к цели:", e);
+                    tg.showAlert("Сетевая ошибка: " + e.message);
                 }
             }
         }
-        
-        // Запускаем проверку инвайта при старте приложения
         checkInviteAndJoin();
+
+        // 2. РУЧНОЕ ПРИСОЕДИНЕНИЕ ПО КОДУ (резервный вариант)
+        document.getElementById('joinByCodeBtn').addEventListener('click', async () => {
+            const code = prompt('Введите код приглашения (например, 3xZfz74FJ...):');
+            if (!code) return;
+            
+            // Очищаем код от лишнего мусора, если вставили всю ссылку
+            let goalId = code.trim();
+            if (goalId.includes('startapp=goal_')) {
+                goalId = goalId.split('startapp=goal_')[1];
+            } else if (goalId.startsWith('goal_')) {
+                goalId = goalId.replace('goal_', '');
+            }
+
+            try {
+                const goalRef = doc(db, 'goals', goalId);
+                const docSnap = await getDoc(goalRef);
+                
+                if (docSnap.exists()) {
+                    const goalData = docSnap.data();
+                    if (!goalData.members.includes(currentUserId)) {
+                        await updateDoc(goalRef, {
+                            members: arrayUnion(currentUserId),
+                            type: 'shared'
+                        });
+                        tg.showAlert('Готово! Вы присоединились к цели.');
+                    } else {
+                        tg.showAlert('Вы уже участвуете в этой цели!');
+                    }
+                } else {
+                    tg.showAlert('Цель не найдена. Проверьте код.');
+                }
+            } catch (e) {
+                tg.showAlert('Ошибка подключения: включите VPN и попробуйте снова. ' + e.message);
+            }
+        });
 
         async function uploadImage(file) {
             const formData = new FormData();
@@ -137,14 +173,9 @@
                     body: formData
                 });
                 const data = await response.json();
-                if (data.success) {
-                    return data.data.url;
-                } else {
-                    alert('Ошибка загрузки картинки.');
-                    return '';
-                }
+                if (data.success) return data.data.url;
+                return '';
             } catch (error) {
-                alert('Сбой при отправке файла');
                 return '';
             }
         }
@@ -216,24 +247,20 @@
             });
         }
 
-        // 2. ЛОГИКА ГЕНЕРАЦИИ ССЫЛКИ И ОТКРЫТИЯ МЕНЮ TELEGRAM
         window.shareGoal = function(id, title) {
-            // Используем юзернейм твоего бота MagoThriftBot
             const botUsername = 'MagoThriftBot';
             const shareUrl = `https://t.me/${botUsername}/app?startapp=goal_${id}`;
-            const text = `Давай копить вместе на "${title}"!`;
+            // Добавили код текстом, чтобы его можно было легко скопировать
+            const text = `Давай копить вместе на "${title}"!\n\nМоя ссылка: ${shareUrl}\n\nЕсли ссылка не открывает приложение сразу, открой Кубышку и нажми "Присоединиться по коду".\nТвой код: ${id}`;
             
-            // Формируем нативную ссылку для шэринга внутри Telegram
             const telegramShareUrl = `https://t.me/share/url?url=${encodeURIComponent(shareUrl)}&text=${encodeURIComponent(text)}`;
-            
-            // Открываем меню выбора контактов
             tg.openTelegramLink(telegramShareUrl);
         };
 
         form.addEventListener('submit', async (e) => {
             e.preventDefault();
             if (currentUserId === 0) {
-                alert("Создавать цели можно только открыв приложение внутри Telegram!");
+                alert("Откройте приложение внутри Telegram!");
                 return;
             }
             submitBtn.textContent = 'Загрузка...';
@@ -241,7 +268,6 @@
 
             const fileInput = document.getElementById('imageFile');
             let imageUrl = '';
-            
             if (fileInput.files.length > 0) {
                 imageUrl = await uploadImage(fileInput.files[0]);
             }
@@ -299,13 +325,11 @@
             
             const updates = {};
             if (newTitle) updates.title = newTitle;
-
             if (fileInput.files.length > 0) {
                 updates.image = await uploadImage(fileInput.files[0]);
             }
 
             await updateDoc(doc(db, 'goals', id), updates);
-            
             closeEditModal();
             btn.textContent = 'Сохранить';
             btn.disabled = false;
