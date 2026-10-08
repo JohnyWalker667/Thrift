@@ -2,50 +2,159 @@
 <html lang="ru">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Копилка Целей</title>
-    <!-- Скрипт для связи с Telegram -->
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Семейная копилка</title>
+    <!-- Скрипт Telegram -->
     <script src="https://telegram.org/js/telegram-web-app.js"></script>
-    <!-- Tailwind CSS для красивого дизайна -->
+    <!-- Tailwind CSS -->
     <script src="https://cdn.tailwindcss.com"></script>
 </head>
-<body class="bg-gray-100 p-4 font-sans text-gray-800">
+<body class="bg-slate-100 min-h-screen p-4 font-sans text-slate-800">
 
-    <h1 class="text-2xl font-bold mb-6 text-center">Мои финансовые цели</h1>
+    <div class="max-w-2xl mx-auto pb-10">
+        <header class="mb-6 text-center">
+            <h1 class="text-2xl font-extrabold text-slate-900 tracking-tight">Семейная копилка</h1>
+        </header>
 
-    <!-- Карточка цели -->
-    <div class="bg-white rounded-2xl shadow-lg p-5 mb-4">
-        <img src="https://images.unsplash.com/photo-1517336714731-489689fd1ca8?auto=format&fit=crop&w=500&q=80" alt="MacBook" class="rounded-xl w-full h-40 object-cover mb-4">
-        
-        <h2 class="text-xl font-semibold mb-2">Новый MacBook Pro</h2>
-        
-        <div class="flex justify-between text-sm text-gray-500 mb-1">
-            <span>Отложено: 150 000 ₽</span>
-            <span>Цель: 250 000 ₽</span>
-        </div>
-        
-        <!-- Прогресс-бар -->
-        <div class="w-full bg-gray-200 rounded-full h-3 mb-4">
-            <div class="bg-blue-500 h-3 rounded-full" style="width: 60%"></div>
-        </div>
+        <!-- Форма добавления цели -->
+        <section class="bg-white rounded-2xl shadow-sm border border-slate-200 p-5 mb-6">
+            <h2 class="text-lg font-bold mb-3 text-slate-800">Новая цель</h2>
+            <form id="goalForm" class="space-y-3">
+                <div>
+                    <input type="text" id="goalTitle" required placeholder="Название (например: Отпуск)" 
+                           class="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-blue-500 focus:outline-none">
+                </div>
+                <div class="grid grid-cols-2 gap-3">
+                    <input type="number" id="targetAmount" required min="1" placeholder="Нужно (₽)" 
+                           class="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-blue-500 focus:outline-none">
+                    <input type="number" id="currentAmount" required min="0" placeholder="Отложено (₽)" 
+                           class="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-blue-500 focus:outline-none">
+                </div>
+                <div>
+                    <input type="url" id="imageUrl" placeholder="Ссылка на фото (необязательно)" 
+                           class="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-blue-500 focus:outline-none">
+                </div>
+                <button type="submit" class="w-full bg-blue-500 hover:bg-blue-600 text-white font-semibold py-2.5 rounded-xl transition duration-150">
+                    Добавить
+                </button>
+            </form>
+        </section>
 
-        <button onclick="addFunds()" class="w-full bg-blue-500 text-white font-bold py-2 px-4 rounded-xl active:bg-blue-600 transition">
-            + Пополнить копилку
-        </button>
+        <!-- Список целей -->
+        <div id="goalsContainer" class="space-y-4"></div>
     </div>
 
-    <script>
-        // Инициализация Telegram Web App
-        const tg = window.Telegram.WebApp;
-        tg.expand(); // Развернуть на весь экран
+    <!-- Подключаем Firebase -->
+    <script type="module">
+        import { initializeApp } from "https://www.gstatic.com/firebasejs/10.5.0/firebase-app.js";
+        import { getFirestore, collection, onSnapshot, addDoc, updateDoc, deleteDoc, doc } from "https://www.gstatic.com/firebasejs/10.5.0/firebase-firestore.js";
 
-        function addFunds() {
-            // Здесь будет логика добавления денег и отправки данных обратно в бота
-            tg.showPopup({
-                title: 'Пополнение',
-                message: 'Функция добавления средств в разработке!',
-                buttons: [{type: 'ok'}]
+        // Разворачиваем приложение на весь экран в Telegram
+        const tg = window.Telegram.WebApp;
+        tg.expand();
+
+        // Твои настройки Firebase
+        const firebaseConfig = {
+            apiKey: "AIzaSyDg4YhG4x97r4SzW12nHlklui7vI5CgNpU",
+            authDomain: "family-thrift.firebaseapp.com",
+            projectId: "family-thrift",
+            storageBucket: "family-thrift.firebasestorage.app",
+            messagingSenderId: "271975083890",
+            appId: "1:271975083890:web:14761fbdd3324a0a3877eb"
+        };
+
+        const app = initializeApp(firebaseConfig);
+        const db = getFirestore(app);
+        const goalsCol = collection(db, 'goals');
+
+        const form = document.getElementById('goalForm');
+        const container = document.getElementById('goalsContainer');
+        let currentGoals = [];
+
+        onSnapshot(goalsCol, (snapshot) => {
+            currentGoals = [];
+            snapshot.forEach((doc) => {
+                currentGoals.push({ ...doc.data(), id: doc.id });
             });
+            renderGoals();
+        });
+
+        function formatMoney(amount) {
+            return new Intl.NumberFormat('ru-RU').format(amount) + ' ₽';
+        }
+
+        function renderGoals() {
+            container.innerHTML = '';
+            if (currentGoals.length === 0) {
+                container.innerHTML = `<div class="text-center py-8 text-slate-400 text-sm">Пока нет целей. Создайте первую!</div>`;
+                return;
+            }
+
+            currentGoals.sort((a, b) => b.createdAt - a.createdAt).forEach(goal => {
+                const percent = Math.min(100, Math.round((goal.current / goal.target) * 100));
+                const defaultImg = 'https://images.unsplash.com/photo-1579621970563-ebec7560ff3e?auto=format&fit=crop&w=600&q=80';
+                
+                const card = document.createElement('div');
+                card.className = 'bg-white rounded-2xl shadow-sm border border-slate-200 overflow-hidden';
+                card.innerHTML = `
+                    <div class="h-32 w-full bg-slate-100 overflow-hidden">
+                        <img src="${goal.image || defaultImg}" alt="${goal.title}" class="w-full h-full object-cover">
+                    </div>
+                    <div class="p-4">
+                        <div class="flex justify-between items-start mb-2">
+                            <h3 class="text-lg font-bold text-slate-900 leading-tight">${goal.title}</h3>
+                            <button id="del-${goal.id}" class="text-slate-400 hover:text-red-500 text-xs mt-1">Удалить</button>
+                        </div>
+                        
+                        <div class="flex justify-between text-xs text-slate-500 mb-1">
+                            <span>Накоплено: <strong class="text-slate-800">${formatMoney(goal.current)}</strong></span>
+                            <span>Цель: <strong class="text-slate-800">${formatMoney(goal.target)}</strong></span>
+                        </div>
+
+                        <div class="w-full bg-slate-100 rounded-full h-2.5 mb-3 overflow-hidden">
+                            <div class="bg-blue-500 h-2.5 rounded-full transition-all duration-300" style="width: ${percent}%"></div>
+                        </div>
+
+                        <button id="add-${goal.id}" class="w-full py-2 bg-blue-50 active:bg-blue-100 text-blue-600 font-semibold text-sm rounded-xl transition">
+                            + Пополнить
+                        </button>
+                    </div>
+                `;
+                container.appendChild(card);
+
+                document.getElementById(`del-${goal.id}`).addEventListener('click', () => deleteGoal(goal.id));
+                document.getElementById(`add-${goal.id}`).addEventListener('click', () => addFunds(goal.id, goal.current));
+            });
+        }
+
+        form.addEventListener('submit', async (e) => {
+            e.preventDefault();
+            const newGoal = {
+                title: document.getElementById('goalTitle').value.trim(),
+                target: Number(document.getElementById('targetAmount').value),
+                current: Number(document.getElementById('currentAmount').value),
+                image: document.getElementById('imageUrl').value.trim(),
+                createdAt: Date.now()
+            };
+            await addDoc(goalsCol, newGoal);
+            form.reset();
+        });
+
+        async function addFunds(id, currentAmount) {
+            const amount = prompt('Сколько денег добавить? (₽)');
+            const num = Number(amount);
+            if (num && num > 0) {
+                const goalRef = doc(db, 'goals', id);
+                await updateDoc(goalRef, {
+                    current: currentAmount + num
+                });
+            }
+        }
+
+        async function deleteGoal(id) {
+            if (confirm('Удалить эту цель?')) {
+                await deleteDoc(doc(db, 'goals', id));
+            }
         }
     </script>
 </body>
