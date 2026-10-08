@@ -65,15 +65,16 @@
         </div>
     </div>
 
-    <!-- Подключаем только Firestore, хранилище Storage удалено -->
     <script type="module">
         import { initializeApp } from "https://www.gstatic.com/firebasejs/10.5.0/firebase-app.js";
-        import { getFirestore, collection, onSnapshot, addDoc, updateDoc, deleteDoc, doc } from "https://www.gstatic.com/firebasejs/10.5.0/firebase-firestore.js";
+        import { getFirestore, collection, onSnapshot, addDoc, updateDoc, deleteDoc, doc, query, where } from "https://www.gstatic.com/firebasejs/10.5.0/firebase-firestore.js";
 
         const tg = window.Telegram.WebApp;
         tg.expand();
 
-        // Твои ключи базы данных
+        const tgUser = tg.initDataUnsafe?.user;
+        const currentUserId = tgUser ? tgUser.id : 0; 
+
         const firebaseConfig = {
             apiKey: "AIzaSyDg4YhG4x97r4SzW12nHlklui7vI5CgNpU",
             authDomain: "family-thrift.firebaseapp.com",
@@ -86,17 +87,16 @@
         const app = initializeApp(firebaseConfig);
         const db = getFirestore(app);
         const goalsCol = collection(db, 'goals');
+        const myGoalsQuery = query(goalsCol, where("members", "array-contains", currentUserId));
 
         const form = document.getElementById('goalForm');
         const container = document.getElementById('goalsContainer');
         const submitBtn = document.getElementById('submitBtn');
         let currentGoals = [];
 
-        // Загрузка фото через ImgBB
         async function uploadImage(file) {
             const formData = new FormData();
             formData.append('image', file);
-            // Твой ключ ImgBB
             const IMGBB_API_KEY = '0d0d2b14dd00e8b1b2032d67aff9feae';
 
             try {
@@ -108,7 +108,7 @@
                 if (data.success) {
                     return data.data.url;
                 } else {
-                    alert('Ошибка загрузки картинки. Попробуйте еще раз.');
+                    alert('Ошибка загрузки картинки.');
                     return '';
                 }
             } catch (error) {
@@ -117,8 +117,7 @@
             }
         }
 
-        // Синхронизация в реальном времени
-        onSnapshot(goalsCol, (snapshot) => {
+        onSnapshot(myGoalsQuery, (snapshot) => {
             currentGoals = [];
             snapshot.forEach((doc) => {
                 currentGoals.push({ ...doc.data(), id: doc.id });
@@ -141,11 +140,16 @@
                 const percent = Math.min(100, Math.round((goal.current / goal.target) * 100));
                 const defaultImg = 'https://images.unsplash.com/photo-1579621970563-ebec7560ff3e?auto=format&fit=crop&w=600&q=80';
                 
+                const typeBadge = goal.type === 'shared' 
+                    ? `<span class="px-2 py-1 bg-green-100 text-green-700 text-[10px] font-bold uppercase rounded-md absolute top-3 right-3 shadow-sm">Общая</span>`
+                    : `<span class="px-2 py-1 bg-slate-800 text-white text-[10px] font-bold uppercase rounded-md absolute top-3 right-3 shadow-sm">Личная</span>`;
+
                 const card = document.createElement('div');
-                card.className = 'bg-white rounded-2xl shadow-sm border border-slate-200 overflow-hidden';
+                card.className = 'bg-white rounded-2xl shadow-sm border border-slate-200 overflow-hidden relative';
                 card.innerHTML = `
                     <div class="h-32 w-full bg-slate-100 overflow-hidden relative">
                         <img src="${goal.image || defaultImg}" alt="${goal.title}" class="w-full h-full object-cover">
+                        ${typeBadge}
                     </div>
                     <div class="p-4">
                         <div class="flex justify-between items-start mb-2">
@@ -178,9 +182,14 @@
             });
         }
 
-        // Добавление новой цели
         form.addEventListener('submit', async (e) => {
             e.preventDefault();
+            
+            if (currentUserId === 0) {
+                alert("Создавать цели можно только открыв приложение внутри Telegram!");
+                return;
+            }
+
             submitBtn.textContent = 'Загрузка...';
             submitBtn.disabled = true;
 
@@ -196,7 +205,10 @@
                 target: Number(document.getElementById('targetAmount').value),
                 current: Number(document.getElementById('currentAmount').value),
                 image: imageUrl,
-                createdAt: Date.now()
+                createdAt: Date.now(),
+                ownerId: currentUserId,
+                type: "personal",
+                members: [currentUserId]
             };
             
             await addDoc(goalsCol, newGoal);
@@ -205,7 +217,6 @@
             submitBtn.disabled = false;
         });
 
-        // Пополнение
         window.addFunds = async function(id, currentAmount) {
             const amount = prompt('Сколько денег добавить? (₽)');
             const num = Number(amount);
@@ -214,14 +225,12 @@
             }
         };
 
-        // Удаление
         window.deleteGoal = async function(id) {
             if (confirm('Точно удалить эту цель?')) {
                 await deleteDoc(doc(db, 'goals', id));
             }
         };
 
-        // Открытие модалки редактирования
         window.openEditModal = function(id, currentTitle) {
             document.getElementById('editGoalId').value = id;
             document.getElementById('editGoalTitle').value = currentTitle;
@@ -229,12 +238,10 @@
             document.getElementById('editModal').classList.remove('hidden');
         };
 
-        // Закрытие модалки
         window.closeEditModal = function() {
             document.getElementById('editModal').classList.add('hidden');
         };
 
-        // Сохранение изменений в цели
         window.saveEdit = async function() {
             const btn = document.getElementById('saveEditBtn');
             btn.textContent = 'Сохранение...';
