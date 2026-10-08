@@ -60,4 +60,203 @@
             </div>
             <div class="flex justify-end gap-3 mt-5">
                 <button onclick="closeEditModal()" class="px-4 py-2 bg-slate-100 text-slate-600 font-semibold rounded-xl">Отмена</button>
-                <button onclick="saveEdit()" id="
+                <button onclick="saveEdit()" id="saveEditBtn" class="px-4 py-2 bg-blue-500 text-white font-semibold rounded-xl">Сохранить</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Подключаем только Firestore, хранилище Storage удалено -->
+    <script type="module">
+        import { initializeApp } from "https://www.gstatic.com/firebasejs/10.5.0/firebase-app.js";
+        import { getFirestore, collection, onSnapshot, addDoc, updateDoc, deleteDoc, doc } from "https://www.gstatic.com/firebasejs/10.5.0/firebase-firestore.js";
+
+        const tg = window.Telegram.WebApp;
+        tg.expand();
+
+        // Твои ключи базы данных
+        const firebaseConfig = {
+            apiKey: "AIzaSyDg4YhG4x97r4SzW12nHlklui7vI5CgNpU",
+            authDomain: "family-thrift.firebaseapp.com",
+            projectId: "family-thrift",
+            storageBucket: "family-thrift.firebasestorage.app",
+            messagingSenderId: "271975083890",
+            appId: "1:271975083890:web:14761fbdd3324a0a3877eb"
+        };
+
+        const app = initializeApp(firebaseConfig);
+        const db = getFirestore(app);
+        const goalsCol = collection(db, 'goals');
+
+        const form = document.getElementById('goalForm');
+        const container = document.getElementById('goalsContainer');
+        const submitBtn = document.getElementById('submitBtn');
+        let currentGoals = [];
+
+        // Загрузка фото через ImgBB
+        async function uploadImage(file) {
+            const formData = new FormData();
+            formData.append('image', file);
+            // Твой ключ ImgBB
+            const IMGBB_API_KEY = '0d0d2b14dd00e8b1b2032d67aff9feae';
+
+            try {
+                const response = await fetch(`https://api.imgbb.com/1/upload?key=${IMGBB_API_KEY}`, {
+                    method: 'POST',
+                    body: formData
+                });
+                const data = await response.json();
+                if (data.success) {
+                    return data.data.url;
+                } else {
+                    alert('Ошибка загрузки картинки. Попробуйте еще раз.');
+                    return '';
+                }
+            } catch (error) {
+                alert('Сбой при отправке файла');
+                return '';
+            }
+        }
+
+        // Синхронизация в реальном времени
+        onSnapshot(goalsCol, (snapshot) => {
+            currentGoals = [];
+            snapshot.forEach((doc) => {
+                currentGoals.push({ ...doc.data(), id: doc.id });
+            });
+            renderGoals();
+        });
+
+        function formatMoney(amount) {
+            return new Intl.NumberFormat('ru-RU').format(amount) + ' ₽';
+        }
+
+        function renderGoals() {
+            container.innerHTML = '';
+            if (currentGoals.length === 0) {
+                container.innerHTML = `<div class="text-center py-8 text-slate-400 text-sm">Пока нет целей. Создайте первую!</div>`;
+                return;
+            }
+
+            currentGoals.sort((a, b) => b.createdAt - a.createdAt).forEach(goal => {
+                const percent = Math.min(100, Math.round((goal.current / goal.target) * 100));
+                const defaultImg = 'https://images.unsplash.com/photo-1579621970563-ebec7560ff3e?auto=format&fit=crop&w=600&q=80';
+                
+                const card = document.createElement('div');
+                card.className = 'bg-white rounded-2xl shadow-sm border border-slate-200 overflow-hidden';
+                card.innerHTML = `
+                    <div class="h-32 w-full bg-slate-100 overflow-hidden relative">
+                        <img src="${goal.image || defaultImg}" alt="${goal.title}" class="w-full h-full object-cover">
+                    </div>
+                    <div class="p-4">
+                        <div class="flex justify-between items-start mb-2">
+                            <h3 class="text-lg font-bold text-slate-900 leading-tight">${goal.title}</h3>
+                            <div class="flex gap-2 shrink-0 ml-2">
+                                <button id="edit-${goal.id}" class="text-blue-500 hover:text-blue-700 text-xs font-medium">Ред.</button>
+                                <button id="del-${goal.id}" class="text-red-400 hover:text-red-600 text-xs font-medium">Удалить</button>
+                            </div>
+                        </div>
+                        
+                        <div class="flex justify-between text-xs text-slate-500 mb-1">
+                            <span>Накоплено: <strong class="text-slate-800">${formatMoney(goal.current)}</strong></span>
+                            <span>Цель: <strong class="text-slate-800">${formatMoney(goal.target)}</strong></span>
+                        </div>
+
+                        <div class="w-full bg-slate-100 rounded-full h-2.5 mb-3 overflow-hidden">
+                            <div class="bg-blue-500 h-2.5 rounded-full transition-all duration-300" style="width: ${percent}%"></div>
+                        </div>
+
+                        <button id="add-${goal.id}" class="w-full py-2 bg-blue-50 active:bg-blue-100 text-blue-600 font-semibold text-sm rounded-xl transition">
+                            + Пополнить
+                        </button>
+                    </div>
+                `;
+                container.appendChild(card);
+
+                document.getElementById(`del-${goal.id}`).addEventListener('click', () => deleteGoal(goal.id));
+                document.getElementById(`add-${goal.id}`).addEventListener('click', () => addFunds(goal.id, goal.current));
+                document.getElementById(`edit-${goal.id}`).addEventListener('click', () => openEditModal(goal.id, goal.title));
+            });
+        }
+
+        // Добавление новой цели
+        form.addEventListener('submit', async (e) => {
+            e.preventDefault();
+            submitBtn.textContent = 'Загрузка...';
+            submitBtn.disabled = true;
+
+            const fileInput = document.getElementById('imageFile');
+            let imageUrl = '';
+            
+            if (fileInput.files.length > 0) {
+                imageUrl = await uploadImage(fileInput.files[0]);
+            }
+
+            const newGoal = {
+                title: document.getElementById('goalTitle').value.trim(),
+                target: Number(document.getElementById('targetAmount').value),
+                current: Number(document.getElementById('currentAmount').value),
+                image: imageUrl,
+                createdAt: Date.now()
+            };
+            
+            await addDoc(goalsCol, newGoal);
+            form.reset();
+            submitBtn.textContent = 'Добавить цель';
+            submitBtn.disabled = false;
+        });
+
+        // Пополнение
+        window.addFunds = async function(id, currentAmount) {
+            const amount = prompt('Сколько денег добавить? (₽)');
+            const num = Number(amount);
+            if (num && num > 0) {
+                await updateDoc(doc(db, 'goals', id), { current: currentAmount + num });
+            }
+        };
+
+        // Удаление
+        window.deleteGoal = async function(id) {
+            if (confirm('Точно удалить эту цель?')) {
+                await deleteDoc(doc(db, 'goals', id));
+            }
+        };
+
+        // Открытие модалки редактирования
+        window.openEditModal = function(id, currentTitle) {
+            document.getElementById('editGoalId').value = id;
+            document.getElementById('editGoalTitle').value = currentTitle;
+            document.getElementById('editImageFile').value = '';
+            document.getElementById('editModal').classList.remove('hidden');
+        };
+
+        // Закрытие модалки
+        window.closeEditModal = function() {
+            document.getElementById('editModal').classList.add('hidden');
+        };
+
+        // Сохранение изменений в цели
+        window.saveEdit = async function() {
+            const btn = document.getElementById('saveEditBtn');
+            btn.textContent = 'Сохранение...';
+            btn.disabled = true;
+
+            const id = document.getElementById('editGoalId').value;
+            const newTitle = document.getElementById('editGoalTitle').value.trim();
+            const fileInput = document.getElementById('editImageFile');
+            
+            const updates = {};
+            if (newTitle) updates.title = newTitle;
+
+            if (fileInput.files.length > 0) {
+                updates.image = await uploadImage(fileInput.files[0]);
+            }
+
+            await updateDoc(doc(db, 'goals', id), updates);
+            
+            closeEditModal();
+            btn.textContent = 'Сохранить';
+            btn.disabled = false;
+        };
+    </script>
+</body>
+</html>
