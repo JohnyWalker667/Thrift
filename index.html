@@ -67,13 +67,15 @@
 
     <script type="module">
         import { initializeApp } from "https://www.gstatic.com/firebasejs/10.5.0/firebase-app.js";
-        import { getFirestore, collection, onSnapshot, addDoc, updateDoc, deleteDoc, doc, query, where } from "https://www.gstatic.com/firebasejs/10.5.0/firebase-firestore.js";
+        // Добавлены arrayUnion и getDoc для работы с совместными целями
+        import { getFirestore, collection, onSnapshot, addDoc, updateDoc, deleteDoc, doc, query, where, arrayUnion, getDoc } from "https://www.gstatic.com/firebasejs/10.5.0/firebase-firestore.js";
 
         const tg = window.Telegram.WebApp;
         tg.expand();
 
         const tgUser = tg.initDataUnsafe?.user;
         const currentUserId = tgUser ? tgUser.id : 0; 
+        const startParam = tg.initDataUnsafe?.start_param; // Ловим параметр из ссылки-приглашения
 
         const firebaseConfig = {
             apiKey: "AIzaSyDg4YhG4x97r4SzW12nHlklui7vI5CgNpU",
@@ -93,6 +95,36 @@
         const container = document.getElementById('goalsContainer');
         const submitBtn = document.getElementById('submitBtn');
         let currentGoals = [];
+
+        // 1. ЛОГИКА ПРИСОЕДИНЕНИЯ К ЦЕЛИ ПО ССЫЛКЕ
+        async function checkInviteAndJoin() {
+            if (currentUserId !== 0 && startParam && startParam.startsWith('goal_')) {
+                const goalId = startParam.replace('goal_', '');
+                try {
+                    const goalRef = doc(db, 'goals', goalId);
+                    const docSnap = await getDoc(goalRef);
+                    
+                    if (docSnap.exists()) {
+                        const goalData = docSnap.data();
+                        // Если нас еще нет в участниках — добавляемся
+                        if (!goalData.members.includes(currentUserId)) {
+                            await updateDoc(goalRef, {
+                                members: arrayUnion(currentUserId),
+                                type: 'shared'
+                            });
+                            tg.showAlert('Вы успешно присоединились к общей цели!');
+                        }
+                    } else {
+                        tg.showAlert('Цель по ссылке не найдена или была удалена.');
+                    }
+                } catch (e) {
+                    console.error("Ошибка при подключении к цели:", e);
+                }
+            }
+        }
+        
+        // Запускаем проверку инвайта при старте приложения
+        checkInviteAndJoin();
 
         async function uploadImage(file) {
             const formData = new FormData();
@@ -155,6 +187,7 @@
                         <div class="flex justify-between items-start mb-2">
                             <h3 class="text-lg font-bold text-slate-900 leading-tight">${goal.title}</h3>
                             <div class="flex gap-2 shrink-0 ml-2">
+                                <button id="share-${goal.id}" class="text-indigo-500 hover:text-indigo-700 text-xs font-medium">Поделиться</button>
                                 <button id="edit-${goal.id}" class="text-blue-500 hover:text-blue-700 text-xs font-medium">Ред.</button>
                                 <button id="del-${goal.id}" class="text-red-400 hover:text-red-600 text-xs font-medium">Удалить</button>
                             </div>
@@ -179,17 +212,30 @@
                 document.getElementById(`del-${goal.id}`).addEventListener('click', () => deleteGoal(goal.id));
                 document.getElementById(`add-${goal.id}`).addEventListener('click', () => addFunds(goal.id, goal.current));
                 document.getElementById(`edit-${goal.id}`).addEventListener('click', () => openEditModal(goal.id, goal.title));
+                document.getElementById(`share-${goal.id}`).addEventListener('click', () => shareGoal(goal.id, goal.title));
             });
         }
 
+        // 2. ЛОГИКА ГЕНЕРАЦИИ ССЫЛКИ И ОТКРЫТИЯ МЕНЮ TELEGRAM
+        window.shareGoal = function(id, title) {
+            // Используем юзернейм твоего бота MagoThriftBot
+            const botUsername = 'MagoThriftBot';
+            const shareUrl = `https://t.me/${botUsername}/app?startapp=goal_${id}`;
+            const text = `Давай копить вместе на "${title}"!`;
+            
+            // Формируем нативную ссылку для шэринга внутри Telegram
+            const telegramShareUrl = `https://t.me/share/url?url=${encodeURIComponent(shareUrl)}&text=${encodeURIComponent(text)}`;
+            
+            // Открываем меню выбора контактов
+            tg.openTelegramLink(telegramShareUrl);
+        };
+
         form.addEventListener('submit', async (e) => {
             e.preventDefault();
-            
             if (currentUserId === 0) {
                 alert("Создавать цели можно только открыв приложение внутри Telegram!");
                 return;
             }
-
             submitBtn.textContent = 'Загрузка...';
             submitBtn.disabled = true;
 
